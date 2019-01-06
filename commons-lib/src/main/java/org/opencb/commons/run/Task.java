@@ -5,7 +5,6 @@ import org.opencb.commons.io.DataWriter;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Created on 13/02/18.
@@ -78,42 +77,96 @@ public interface Task<T, R> {
      * @return          Task that concatenates the current task with the given writer.
      */
     default Task<T, R> then(DataWriter<R> writer) {
-        AtomicBoolean pre = new AtomicBoolean(false);
-        AtomicBoolean post = new AtomicBoolean(false);
-        Task<T, R> task = this;
+        return then(writer.asTask());
+    }
+//    default Task<T, R> then(DataWriter<R> writer) {
+//        AtomicBoolean pre = new AtomicBoolean(false);
+//        AtomicBoolean post = new AtomicBoolean(false);
+//        Task<T, R> task = this;
+//        return new Task<T, R>() {
+//
+//            @Override
+//            public void pre() throws Exception {
+//                if (!pre.getAndSet(true)) {
+//                    writer.open();
+//                    writer.pre();
+//                }
+//                task.pre();
+//            }
+//
+//            @Override
+//            public List<R> apply(List<T> batch) throws Exception {
+//                List<R> batch2 = task.apply(batch);
+//                synchronized (pre) {
+//                    writer.write(batch2);
+//                }
+//                return batch2;
+//            }
+//
+//            @Override
+//            public List<R> drain() throws Exception {
+//                // Drain and write
+//                List<R> drain = task.drain();
+//                writer.write(drain);
+//                return drain;
+//            }
+//
+//            @Override
+//            public void post() throws Exception {
+//                task.post();
+//                if (!post.getAndSet(true)) {
+//                    writer.post();
+//                    writer.close();
+//                }
+//            }
+//        };
+//    }
+
+    /**
+     * Use to execute multiple Tasks with the same input.
+     * Only the output of the root task will be sent to the writer.
+     *
+     * task1.also(task2);
+     *
+     * @param otherTask  Task to concatenate
+     * @return          Task that concatenates the current and the given task.
+     */
+    default Task<T, R> also(Task<T, ?> otherTask) {
+        Task<T, R> thisTask = this;
         return new Task<T, R>() {
             @Override
             public void pre() throws Exception {
-                if (!pre.getAndSet(true)) {
-                    writer.open();
-                    writer.pre();
-                }
-                task.pre();
+                thisTask.pre();
+                otherTask.pre();
             }
 
             @Override
             public List<R> apply(List<T> batch) throws Exception {
-                List<R> batch2 = task.apply(batch);
-                writer.write(batch2);
-                return batch2;
+                List<R> apply1 = thisTask.apply(batch);
+                otherTask.apply(batch);
+                return apply1;
             }
 
             @Override
             public List<R> drain() throws Exception {
-                // Drain and write
-                List<R> drain = task.drain();
-                writer.write(drain);
-                return drain;
+                // Drain both tasks
+                List<R> drain1 = thisTask.drain();
+                otherTask.drain();
+
+                // Return drain1
+                return drain1;
             }
 
             @Override
             public void post() throws Exception {
-                task.post();
-                if (!post.getAndSet(true)) {
-                    writer.post();
-                    writer.close();
-                }
+                thisTask.post();
+                otherTask.post();
             }
         };
     }
+
+    default Task<T, R> also(DataWriter<T> writer) {
+        return also(writer.asTask());
+    }
+
 }

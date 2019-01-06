@@ -16,8 +16,11 @@
 
 package org.opencb.commons.io;
 
+import org.opencb.commons.run.Task;
+
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Created with IntelliJ IDEA.
@@ -50,5 +53,35 @@ public interface DataWriter<T> {
     }
 
     boolean write(List<T> batch);
+
+    default Task<T, T> asTask() {
+        AtomicBoolean pre = new AtomicBoolean(false);
+        AtomicBoolean post = new AtomicBoolean(false);
+        return new Task<T, T>() {
+            @Override
+            public void pre() throws Exception {
+                if (!pre.getAndSet(true)) {
+                    DataWriter.this.open();
+                    DataWriter.this.pre();
+                }
+            }
+
+            @Override
+            public List<T> apply(List<T> batch) throws Exception {
+                synchronized (pre) {
+                    DataWriter.this.write(batch);
+                }
+                return batch;
+            }
+
+            @Override
+            public void post() throws Exception {
+                if (!post.getAndSet(true)) {
+                    DataWriter.this.post();
+                    DataWriter.this.close();
+                }
+            }
+        };
+    }
 
 }
